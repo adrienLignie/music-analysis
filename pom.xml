@@ -1,0 +1,391 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>fr.musique</groupId>
+	<artifactId>music-analysis</artifactId>
+	<version>1.0.0-SNAPSHOT</version>
+	<name>music-analysis</name>
+	<description>Recherche d'albums en double et classement des repertoires par poids, en lecture seule</description>
+
+	<properties>
+		<!--
+		  Version de Java visee. Le code n'emploie rien qui depasse 17 ; la propriete est isolee
+		  pour qu'une montee de version soit un seul chiffre a changer, ici et dans la regle de
+		  l'enforcer, le jour ou la machine de construction portera un JDK plus recent.
+		-->
+		<java.release>17</java.release>
+		<maven.compiler.release>${java.release}</maven.compiler.release>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+		<!--
+		  Date figee dans les archives produites. Sans elle, deux constructions du meme code
+		  rendent deux jars differents, et l'on ne peut plus verifier qu'un binaire distribue
+		  correspond bien aux sources qu'il pretend porter.
+		-->
+		<project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
+
+		<!-- Versions des dependances, rassemblees pour etre revues d'un coup d'oeil. -->
+		<picocli.version>4.7.6</picocli.version>
+		<slf4j.version>2.0.13</slf4j.version>
+		<logback.version>1.5.6</logback.version>
+		<junit.version>5.10.2</junit.version>
+		<assertj.version>3.25.3</assertj.version>
+
+		<!-- Versions des plugins : figees pour qu'une montee de version de Maven ne change pas
+		     silencieusement le comportement du build. -->
+		<maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+		<maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+		<maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
+		<maven-shade-plugin.version>3.5.3</maven-shade-plugin.version>
+		<maven-enforcer-plugin.version>3.6.2</maven-enforcer-plugin.version>
+		<jacoco-maven-plugin.version>0.8.12</jacoco-maven-plugin.version>
+		<pitest-maven.version>1.16.1</pitest-maven.version>
+		<pitest-junit5-plugin.version>1.2.1</pitest-junit5-plugin.version>
+		<native-maven-plugin.version>0.10.2</native-maven-plugin.version>
+		<spotbugs-maven-plugin.version>4.8.6.6</spotbugs-maven-plugin.version>
+
+		<!-- Couverture minimale exigee. Le seuil est tenu juste sous la couverture atteinte : un
+		     seuil laisse loin derriere ne signale plus rien. Il montera avec le projet. -->
+		<jacoco.instruction.minimum>0.95</jacoco.instruction.minimum>
+		<jacoco.branch.minimum>0.85</jacoco.branch.minimum>
+	</properties>
+
+	<dependencies>
+		<!-- Interface en ligne de commande -->
+		<dependency>
+			<groupId>info.picocli</groupId>
+			<artifactId>picocli</artifactId>
+			<version>${picocli.version}</version>
+		</dependency>
+
+		<!-- Journalisation : console + fichier -->
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+			<version>${slf4j.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-classic</artifactId>
+			<version>${logback.version}</version>
+		</dependency>
+
+		<!-- Tests -->
+		<dependency>
+			<groupId>org.junit.jupiter</groupId>
+			<artifactId>junit-jupiter</artifactId>
+			<version>${junit.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.assertj</groupId>
+			<artifactId>assertj-core</artifactId>
+			<version>${assertj.version}</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<finalName>music-analysis</finalName>
+
+		<!--
+		  version.properties est la seule ressource filtrée : elle porte la version du projet,
+		  que Main annonce sous son option de version. L'y faire écrire par la construction
+		  plutôt que de la répéter dans une annotation supprime le seul endroit où le binaire
+		  pouvait mentir sur son propre numéro. Le reste des ressources est copié tel quel :
+		  logback.xml contient des ${} qui ne s'adressent pas à Maven.
+		-->
+		<resources>
+			<resource>
+				<directory>src/main/resources</directory>
+				<filtering>true</filtering>
+				<includes>
+					<include>version.properties</include>
+				</includes>
+			</resource>
+			<resource>
+				<directory>src/main/resources</directory>
+				<filtering>false</filtering>
+				<excludes>
+					<exclude>version.properties</exclude>
+				</excludes>
+			</resource>
+		</resources>
+
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-resources-plugin</artifactId>
+				<version>${maven-resources-plugin.version}</version>
+				<configuration>
+					<!-- Sans cela, un fichier .properties filtre serait copie dans l'encodage
+					     historique de ce format et non en UTF-8, et ses accents s'y perdraient. -->
+					<propertiesEncoding>UTF-8</propertiesEncoding>
+				</configuration>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>${maven-compiler-plugin.version}</version>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<version>${maven-surefire-plugin.version}</version>
+				<configuration>
+					<!-- Les titres d'albums contiennent des accents : les tests doivent lire leurs
+					     sources et leurs messages en UTF-8 quel que soit l'encodage de la machine. -->
+					<argLine>-Dfile.encoding=UTF-8 @{jacoco.argLine}</argLine>
+				</configuration>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-enforcer-plugin</artifactId>
+				<version>${maven-enforcer-plugin.version}</version>
+				<executions>
+					<execution>
+						<id>exiger-les-versions</id>
+						<goals><goal>enforce</goal></goals>
+						<configuration>
+							<rules>
+								<requireJavaVersion><version>[${java.release},)</version></requireJavaVersion>
+								<requireMavenVersion><version>[3.8,)</version></requireMavenVersion>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>${jacoco-maven-plugin.version}</version>
+				<configuration>
+					<propertyName>jacoco.argLine</propertyName>
+				</configuration>
+				<executions>
+					<execution>
+						<id>preparer-agent</id>
+						<goals><goal>prepare-agent</goal></goals>
+					</execution>
+					<execution>
+						<!-- Le rapport lisible, sans lequel un seuil non tenu ne dit pas ou. -->
+						<id>rapport-de-couverture</id>
+						<phase>verify</phase>
+						<goals><goal>report</goal></goals>
+					</execution>
+					<execution>
+						<id>verifier-couverture</id>
+						<phase>verify</phase>
+						<goals><goal>check</goal></goals>
+						<configuration>
+							<rules>
+								<rule>
+									<element>BUNDLE</element>
+									<limits>
+										<limit>
+											<counter>INSTRUCTION</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>${jacoco.instruction.minimum}</minimum>
+										</limit>
+										<limit>
+											<counter>BRANCH</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>${jacoco.branch.minimum}</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+
+			<!--
+			  Analyse statique du bytecode, dans le cycle normal.
+
+			  La couverture dit que la ligne a ete executee, la mutation qu'une assertion la
+			  surveille ; ni l'une ni l'autre ne dit qu'une comparaison porte sur le bon type ou
+			  qu'un flux reste ouvert sur un chemin d'erreur. C'est ce que celle-ci lit, et elle
+			  le lit en quelques secondes : pas de raison de la reserver a un profil, contrairement
+			  a la mutation qui dure des minutes.
+
+			  maxRank 16 laisse de cote les remarques de style, dont ce projet n'a pas besoin : ce
+			  qu'on veut ici, ce sont les defauts, et un outil qui parle trop cesse d'etre lu.
+			-->
+			<plugin>
+				<groupId>com.github.spotbugs</groupId>
+				<artifactId>spotbugs-maven-plugin</artifactId>
+				<version>${spotbugs-maven-plugin.version}</version>
+				<configuration>
+					<effort>Max</effort>
+					<threshold>Default</threshold>
+					<maxRank>16</maxRank>
+					<includeTests>false</includeTests>
+					<xmlOutput>true</xmlOutput>
+					<!-- Les cas revus et ecartes, un par un et avec leur raison. -->
+					<excludeFilterFile>spotbugs-exclusions.xml</excludeFilterFile>
+				</configuration>
+				<executions>
+					<execution>
+						<id>analyse-statique</id>
+						<phase>verify</phase>
+						<goals><goal>check</goal></goals>
+					</execution>
+				</executions>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-shade-plugin</artifactId>
+				<version>${maven-shade-plugin.version}</version>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals><goal>shade</goal></goals>
+						<configuration>
+							<createDependencyReducedPom>false</createDependencyReducedPom>
+							<transformers>
+								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+									<mainClass>fr.musique.Main</mainClass>
+								</transformer>
+							</transformers>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
+
+	<profiles>
+		<!--
+		  Tests de mutation, a lancer a la main : mvn -P mutation test.
+		  La couverture dit quelles lignes ont ete executees, pas si une assertion les surveille.
+		  Sur un programme fait de seuils et de bornes - quatre exemplaires avant soupcon, un debit
+		  plancher par format, un huitieme de la mediane -, c'est la seule mesure qui reponde a la
+		  question qui compte : peut-on changer ce nombre sans qu'un test tombe ?
+		  Hors du cycle normal parce que l'analyse dure plusieurs minutes.
+		-->
+		<profile>
+			<id>mutation</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.pitest</groupId>
+						<artifactId>pitest-maven</artifactId>
+						<version>${pitest-maven.version}</version>
+						<executions>
+							<execution>
+								<id>analyse-de-mutation</id>
+								<phase>test</phase>
+								<goals><goal>mutationCoverage</goal></goals>
+							</execution>
+						</executions>
+						<configuration>
+							<targetClasses><param>fr.musique.*</param></targetClasses>
+							<targetTests><param>fr.musique.*</param></targetTests>
+							<outputFormats>
+								<param>HTML</param>
+								<param>XML</param>
+							</outputFormats>
+							<timestampedReports>false</timestampedReports>
+							<!--
+							  Les reglages de surefire ne sont pas repris : son argLine porte le
+							  jeton de l'agent de couverture, qui n'a aucun sens ici et faisait
+							  mourir les processus d'analyse avant leur premiere mutation.
+							  L'encodage, lui, reste indispensable : les titres d'albums sont
+							  accentues.
+							-->
+							<parseSurefireConfig>false</parseSurefireConfig>
+							<jvmArgs>
+								<jvmArg>-Dfile.encoding=UTF-8</jvmArg>
+							</jvmArgs>
+						</configuration>
+						<dependencies>
+							<dependency>
+								<groupId>org.pitest</groupId>
+								<artifactId>pitest-junit5-plugin</artifactId>
+								<version>${pitest-junit5-plugin.version}</version>
+							</dependency>
+						</dependencies>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+
+		<!--
+		  Binaire natif, a construire avec un JDK GraalVM : mvn -P natif package.
+
+		  Ce que cela change : l'outil s'ouvre en quelques millisecondes au lieu de quelques
+		  centaines, et ne demande plus de machine virtuelle installee. Pour un programme qu'on
+		  lance a la volee sur une bibliotheque, le demarrage de la JVM pese plus lourd que
+		  l'analyse elle-meme des qu'il n'y a que quelques centaines d'albums.
+
+		  Ce profil n'est pas dans le cycle normal : il demande un JDK particulier, et sa
+		  construction dure plusieurs minutes.
+
+		  picocli-codegen releve a la compilation ce que la ligne de commande atteint par
+		  introspection, et l'ecrit ou l'image native saura le lire : sans lui, le binaire
+		  ne reconnaitrait aucune option.
+		-->
+		<profile>
+			<id>natif</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-compiler-plugin</artifactId>
+						<version>${maven-compiler-plugin.version}</version>
+						<configuration>
+							<annotationProcessorPaths>
+								<path>
+									<groupId>info.picocli</groupId>
+									<artifactId>picocli-codegen</artifactId>
+									<version>${picocli.version}</version>
+								</path>
+							</annotationProcessorPaths>
+							<compilerArgs>
+								<arg>-Aproject=${project.groupId}/${project.artifactId}</arg>
+							</compilerArgs>
+						</configuration>
+					</plugin>
+
+					<plugin>
+						<groupId>org.graalvm.buildtools</groupId>
+						<artifactId>native-maven-plugin</artifactId>
+						<version>${native-maven-plugin.version}</version>
+						<extensions>true</extensions>
+						<executions>
+							<execution>
+								<id>construire-le-binaire</id>
+								<phase>package</phase>
+								<goals><goal>compile-no-fork</goal></goals>
+							</execution>
+						</executions>
+						<configuration>
+							<imageName>music-analysis</imageName>
+							<mainClass>fr.musique.Main</mainClass>
+							<buildArgs>
+								<!-- Rien ne doit retomber silencieusement sur une JVM absente. -->
+								<buildArg>--no-fallback</buildArg>
+								<!-- Les titres sont accentues et les tailles mises en forme a la
+								     francaise : sans ces deux options, le binaire ne saurait ni
+								     les ecrire ni les lire. -->
+								<buildArg>-H:+AddAllCharsets</buildArg>
+								<buildArg>-H:IncludeLocales=fr</buildArg>
+								<!-- Une image native n'a pas de manifeste : sans cet argument,
+								     l'option de version ne saurait plus quel numéro annoncer. -->
+								<buildArg>-H:IncludeResources=version.properties</buildArg>
+							</buildArgs>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+</project>
