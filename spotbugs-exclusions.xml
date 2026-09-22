@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Ce que l'analyse statique signale et qu'on ne corrige pas, avec la raison de chaque cas.
+
+  Un filtre n'est pas un moyen de faire taire l'outil : c'est une revue. Chaque entree nomme une
+  methode precise, jamais un motif entier, pour qu'une occurrence nouvelle du meme defaut ailleurs
+  dans le code continue de faire echouer la construction.
+
+  Le seul motif filtre ici est celui de Path.getFileName(), dont la specification dit qu'il rend
+  null pour une racine de systeme de fichiers - « / » sous Unix, « C:\ » sous Windows. Aucun des
+  chemins ci-dessous ne peut en etre une :
+
+  - visitFile et lire ne recoivent que des fichiers, enumeres par le parcours ou retenus par lui.
+    Une racine de systeme de fichiers est un repertoire ; elle n'arrive jamais la.
+  - retenirSiLisible et composer travaillent sur ces memes fichiers, transmis plus loin.
+  - nomDuParent a deja ecarte le cas par un test explicite sur getParent(), que l'analyse ne suit
+    pas a travers le retour de methode.
+
+  Ajouter une garde a chacun de ces endroits ecrirait cinq branches qu'aucun test ne peut
+  atteindre, ce qui deplacerait le probleme dans la couverture sans rien rendre plus sur.
+-->
+<FindBugsFilter>
+
+	<Match>
+		<Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+		<Class name="fr.musique.scan.Parcours$Visiteur"/>
+		<Method name="visitFile"/>
+	</Match>
+
+	<Match>
+		<Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+		<Class name="fr.musique.media.EtiquettesDuFichier"/>
+		<Method name="lire"/>
+	</Match>
+
+	<Match>
+		<Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+		<Class name="fr.musique.Main"/>
+		<Method name="retenirSiLisible"/>
+	</Match>
+
+	<Match>
+		<Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+		<Class name="fr.musique.scan.Identification"/>
+		<Method name="composer"/>
+	</Match>
+
+	<Match>
+		<Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+		<Class name="fr.musique.scan.DossierTrouve"/>
+		<Method name="nomDuParent"/>
+	</Match>
+
+</FindBugsFilter>
